@@ -1,0 +1,98 @@
+
+type id.
+type skey.
+
+fun chanToBitstring(channel): bitstring [typeConverter].
+fun bitstringToChan(bitstring): channel [typeConverter].
+
+fun idTobitstring(id): bitstring  [typeConverter].
+
+free lb2: channel.
+free lb1: channel.
+free lb0: channel.
+free cs: channel.
+
+fun pk(skey): id.
+
+fun encrypt(id, bitstring): bitstring.
+fun decrypt(skey, bitstring): bitstring
+    reduc
+        forall k: skey, m: bitstring; decrypt(k, encrypt(pk(k), m)) = m.
+
+fun aes_encrypt(bitstring, bitstring): bitstring.
+fun aes_decrypt(bitstring, bitstring): bitstring
+     reduc
+        forall k: bitstring, m: bitstring; aes_decrypt(k, aes_encrypt(k, m)) = m.
+
+(*Sender user*)
+let SENDER(L1: id, challenge: bitstring, RPr: id) =
+    let (R: id, M: bitstring) = challenge in
+    new K: bitstring;
+
+    (*Packet core*)
+    let payload0 = (aes_encrypt(K, M), encrypt(R, K), encrypt(RPr, idTobitstring(R))) in
+    new alpha0: bitstring;
+    new beta0: bitstring;
+    new gamma0: bitstring;
+
+    new aes_key1: bitstring;
+
+    let gamma1: bitstring = encrypt(L1, aes_key1) in
+
+    let beta1: bitstring = aes_encrypt(aes_key1, (gamma0, beta0)) in
+
+    let H1: bitstring = chanToBitstring(lb0) in
+    let alpha1: bitstring = aes_encrypt(aes_key1, (H1, alpha0)) in
+
+    let payload1 = aes_encrypt(aes_key1, payload0) in
+
+    out(lb1, (alpha1, beta1, gamma1, payload1))
+.
+
+(*1st layer of mix nodes and its loadbalancer*)
+let LAYER1(skL1: skey) =
+    in(lb1, (alpha1: bitstring, beta1: bitstring, gamma1: bitstring, payload1: bitstring)) [precise];
+
+    let aes_key1: bitstring = decrypt(skL1, gamma1) in 
+
+    let payload0: bitstring = aes_decrypt(aes_key1, payload1) in
+
+    let (gamma0: bitstring, beta0: bitstring) = aes_decrypt(aes_key1, beta1) in
+
+    let (H1: bitstring, alpha0: bitstring) = aes_decrypt(aes_key1, alpha1) in
+
+    out(bitstringToChan(H1), (alpha0, beta0, gamma0, payload0))
+.
+
+process
+   
+  (
+    new test_msg1: bitstring;
+    new test_msg2: bitstring;
+    new skR1: skey;
+    new skR2: skey;
+    let receiver1: id = pk(skR1) in
+    let receiver2: id = pk(skR2) in
+
+    new skL1: skey;
+    let L1: id = pk(skL1) in
+
+    new skRPr: skey;
+    let RPr: id = pk(skRPr) in
+
+    (*out(cs, (receiver1, receiver2, test_msg1, test_msg2));
+    out(cs, ((L2, skL2), L1));
+
+    let challenge1 = (receiver1, test_msg1) in
+    let challenge2 = (receiver2, test_msg2) in*)
+
+    out(cs, receiver1);
+    out(cs, test_msg1);
+    out(cs, receiver2);
+    out(cs, test_msg2);
+    out(cs, L1);
+
+    let choice_challenge = choice[(receiver1, test_msg1), (receiver2, test_msg2)] in
+
+    SENDER(L1, choice_challenge, RPr) | LAYER1(skL1)
+)
